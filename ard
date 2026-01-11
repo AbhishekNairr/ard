@@ -1,0 +1,99 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// LCD address (most common is 0x27)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Pins
+#define ACS_PIN A0
+#define VOLT_PIN A2
+#define RELAY_PIN 8
+#define BUZZER_PIN 9
+
+// Calibration values
+float ACS_OFFSET = 2.5;      // Midpoint voltage
+float ACS_SENS = 0.066;      // 30A module (use 0.185 for 5A)
+float VOLT_CAL = 230.0;
+
+// Limits
+float PHANTOM_LIMIT = 2.0;   // watts
+float OVERLOAD_LIMIT = 1000; // watts
+
+void setup() {
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  digitalWrite(RELAY_PIN, HIGH); // relay ON
+  digitalWrite(BUZZER_PIN, LOW);
+
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0,0);
+  lcd.print("Power Monitor");
+  lcd.setCursor(0,1);
+  lcd.print("Starting...");
+  delay(2000);
+
+  Serial.begin(9600);
+}
+
+// Read current from ACS712
+float readCurrent() {
+  float sum = 0;
+  for (int i = 0; i < 100; i++) {
+    sum += analogRead(ACS_PIN);
+    delay(2);
+  }
+
+  float avg = sum / 100.0;
+  float voltage = (avg * 5.0) / 1023.0;
+  float current = (voltage - ACS_OFFSET) / ACS_SENS;
+  return abs(current);
+}
+
+// Read voltage from ZMPT101B
+float readVoltage() {
+  float raw = analogRead(VOLT_PIN);
+  float voltage = (raw * VOLT_CAL) / 1023.0;
+  return voltage;
+}
+
+void loop() {
+  float current = readCurrent();
+  float voltage = readVoltage();
+  float power = voltage * current;
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("P:");
+  lcd.print(power,1);
+  lcd.print("W");
+
+  lcd.setCursor(0,1);
+
+  if (power > OVERLOAD_LIMIT) {
+    lcd.print("OVERLOAD!");
+    digitalWrite(RELAY_PIN, LOW);
+    digitalWrite(BUZZER_PIN, HIGH);
+  }
+  else if (power > 0.3 && power < PHANTOM_LIMIT) {
+    lcd.print("PHANTOM LOAD");
+    digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+  else {
+    lcd.print("NORMAL");
+    digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  Serial.print("V: ");
+  Serial.print(voltage);
+  Serial.print(" I: ");
+  Serial.print(current);
+  Serial.print(" P: ");
+  Serial.println(power);
+
+  delay(1000);
+}
